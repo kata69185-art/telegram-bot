@@ -1,11 +1,10 @@
 import os, asyncio, aiohttp
 from aiogram import Bot, Dispatcher, types
 from aiohttp import web
-from aiogram.types import FSInputFile
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-GROQ_VOICE_KEY = os.environ.get("GROQ_VOICE_KEY") # Новый ключ для голоса
+GROQ_VOICE_KEY = os.environ.get("GROQ_VOICE_KEY") 
 
 SYSTEM = "Ты — дружелюбный помощник. Отвечай кратко и по делу. Пиши не более 2-3 предложений за раз."
 
@@ -20,6 +19,8 @@ async def handle(msg: types.Message):
     if user_id not in user_histories:
         user_histories[user_id] = [{"role": "system", "content": SYSTEM}]
     
+    user_text = "" # Создаем переменную для текста
+
     # Если пришло голосовое сообщение
     if msg.voice:
         file_id = msg.voice.file_id
@@ -27,7 +28,6 @@ async def handle(msg: types.Message):
         file_path = f"voice_{user_id}.ogg"
         await bot.download_file(file.file_path, file_path)
         
-        # Отправляем в Groq Whisper для распознавания
         async with aiohttp.ClientSession() as s:
             with open(file_path, "rb") as f:
                 form = aiohttp.FormData()
@@ -41,20 +41,23 @@ async def handle(msg: types.Message):
                 ) as r:
                     result = await r.json()
                     if 'text' in result:
-                        msg.text = result['text']
-                        await msg.answer(f"🎤 Я услышал: {msg.text}")
+                        user_text = result['text'] # Записываем текст в переменную
+                        await msg.answer(f"🎤 Я услышал: {user_text}")
                     else:
                         await msg.answer("Не удалось распознать голос.")
                         return
 
-    if not msg.text:
+    # Если это текстовое сообщение
+    elif msg.text:
+        user_text = msg.text
+
+    if not user_text:
         return
 
-    user_histories[user_id].append({"role": "user", "content": msg.text})
+    user_histories[user_id].append({"role": "user", "content": user_text})
     if len(user_histories[user_id]) > 11:
         user_histories[user_id] = [user_histories[user_id][0]] + user_histories[user_id][-10:]
 
-    # Отправляем текст в нейросеть
     async with aiohttp.ClientSession() as s:
         async with s.post(
             "https://api.groq.com/openai/v1/chat/completions",
